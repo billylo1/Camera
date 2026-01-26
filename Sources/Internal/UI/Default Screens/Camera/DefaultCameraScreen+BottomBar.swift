@@ -74,11 +74,11 @@ private extension DefaultCameraScreen.BottomBar {
 private extension DefaultCameraScreen.BottomBar {
     func changeLightMode() {
         do { try parent.setLightMode(parent.lightMode.next()) }
-        catch {}
+        catch { print("⚠️ Failed to change light mode: \(error.localizedDescription)") }
     }
     func changeCameraPosition() { Task {
         do { try await parent.setCameraPosition(parent.cameraPosition.next()) }
-        catch {}
+        catch { print("⚠️ Failed to change camera position: \(error.localizedDescription)") }
     }}
 }
 

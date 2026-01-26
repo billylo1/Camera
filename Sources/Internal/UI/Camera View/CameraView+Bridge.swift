@@ -43,9 +43,16 @@ extension CameraBridgeView: Equatable {
 
 
 // MARK: - GESTURES
-extension CameraBridgeView { class Coordinator: NSObject { init(_ parent: CameraBridgeView) { self.parent = parent }
-    let parent: CameraBridgeView
-}}
+extension CameraBridgeView {
+    class Coordinator: NSObject {
+        let parent: CameraBridgeView
+        var lastPinchZoom: CGFloat = 1.0  // Track zoom level when pinch gesture started
+        
+        init(_ parent: CameraBridgeView) {
+            self.parent = parent
+        }
+    }
+}
 
 // MARK: On Tap
 extension CameraBridgeView.Coordinator {
@@ -53,16 +60,38 @@ extension CameraBridgeView.Coordinator {
         do {
             let touchPoint = tap.location(in: parent.inputView)
             try parent.cameraManager.setCameraFocus(at: touchPoint)
-        } catch {}
+        } catch {
+            print("⚠️ Failed to set camera focus: \(error.localizedDescription)")
+        }
     }
 }
 
 // MARK: On Pinch
 extension CameraBridgeView.Coordinator {
-    @MainActor @objc func onPinchGesture(_ pinch: UIPinchGestureRecognizer) { if pinch.state == .changed {
+    @MainActor @objc func onPinchGesture(_ pinch: UIPinchGestureRecognizer) {
         do {
-            let desiredZoomFactor = parent.cameraManager.attributes.zoomFactor + atan2(pinch.velocity, 33)
-            try parent.cameraManager.setCameraZoomFactor(desiredZoomFactor)
-        } catch {}
-    }}
+            if pinch.state == .began {
+                // Store the zoom level at gesture start
+                lastPinchZoom = parent.cameraManager.attributes.zoomFactor
+            }
+            
+            if pinch.state == .changed {
+                // Use scale multiplicatively - this is naturally symmetric
+                // scale = 2.0 means 2x zoom in, scale = 0.5 means 2x zoom out
+                let desiredZoomFactor = lastPinchZoom * pinch.scale
+                
+                // Cap zoom at practical max (10x display)
+                // Back camera (virtual device): 10x display = 20x internal
+                // Front camera (single wide-angle): 10x display = 10x internal
+                let isBackCamera = parent.cameraManager.attributes.cameraPosition == .back
+                let practicalMaxZoom: CGFloat = isBackCamera ? 20.0 : 10.0
+                let minZoom: CGFloat = 1.0
+                let clampedZoomFactor = min(max(desiredZoomFactor, minZoom), practicalMaxZoom)
+                
+                try parent.cameraManager.setCameraZoomFactor(clampedZoomFactor)
+            }
+        } catch {
+            print("⚠️ Failed to set camera zoom: \(error.localizedDescription)")
+        }
+    }
 }
