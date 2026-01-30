@@ -40,6 +40,7 @@ private extension CameraMetalView {
     }
     func configureMetalView(metalDevice: MTLDevice) {
         self.parent.cameraView.alpha = 0
+        self.parent.cameraView.backgroundColor = .clear
 
         self.delegate = self
         self.device = metalDevice
@@ -49,6 +50,7 @@ private extension CameraMetalView {
         self.autoResizeDrawable = false
         self.contentMode = .scaleAspectFill
         self.clipsToBounds = true
+        self.backgroundColor = .clear
     }
 }
 

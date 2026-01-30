@@ -47,6 +47,7 @@ import AVKit
 extension CameraManager {
     func initialize(in view: UIView) {
         cameraView = view
+        view.backgroundColor = .clear
     }
 }
 
@@ -407,7 +408,7 @@ private extension CameraManager {
 extension CameraManager {
     func resetAttributes(device: (any CaptureDevice)?) {
         guard let device else { return }
-
+ 
         var newAttributes = attributes
         newAttributes.cameraExposure.mode = device.exposureMode
         newAttributes.cameraExposure.duration = device.exposureDuration
