@@ -18,6 +18,9 @@ import AVKit
 
 // MARK: Setup
 extension CameraManagerPhotoOutput {
+    func assignParent(_ parent: CameraManager) {
+        self.parent = parent
+    }
     func setup(parent: CameraManager) throws(MCameraError) {
         self.parent = parent
         try self.parent.captureSession.add(output: output)

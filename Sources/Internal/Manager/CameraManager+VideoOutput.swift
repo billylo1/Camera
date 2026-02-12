@@ -23,6 +23,9 @@ import MijickTimer
 
 // MARK: Setup
 extension CameraManagerVideoOutput {
+    func assignParent(_ parent: CameraManager) {
+        self.parent = parent
+    }
     func setup(parent: CameraManager) throws(MCameraError) {
         self.parent = parent
         try parent.captureSession.add(output: output)

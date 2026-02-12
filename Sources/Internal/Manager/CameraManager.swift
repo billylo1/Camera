@@ -12,6 +12,26 @@
 import SwiftUI
 import AVKit
 
+/// Wraps a throwing closure so it can be passed to `runAsync` (AV types are not `Sendable`; session config is single-threaded on the session queue).
+private struct SendableSessionWork: @unchecked Sendable {
+    let run: () throws -> Void
+    init(_ run: @escaping () throws -> Void) { self.run = run }
+}
+
+/// Runs `work` on `queue` and resumes the continuation on main. Used so AVFoundation session config doesn’t block the main thread; kept at file scope so the continuation stays `Error`-typed (no MCameraError inference).
+private func runAsync(on queue: DispatchQueue, work: SendableSessionWork) async throws(Error) {
+    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        queue.async {
+            do {
+                try work.run()
+                DispatchQueue.main.async { cont.resume() }
+            } catch {
+                DispatchQueue.main.async { cont.resume(throwing: error) }
+            }
+        }
+    }
+}
+
 @MainActor public class CameraManager: NSObject, ObservableObject {
     @Published var attributes: CameraManagerAttributes = .init()
 
@@ -31,6 +51,7 @@ import AVKit
     private(set) var cameraGridView: CameraGridView = .init()
 
     // MARK: Others
+    private let sessionQueue = DispatchQueue(label: "com.mijick.camera.session")
     private(set) var permissionsManager: CameraManagerPermissionsManager = .init()
     private(set) var motionManager: CameraManagerMotionManager = .init()
     private(set) var notificationCenterManager: CameraManagerNotificationCenter = .init()
@@ -57,12 +78,34 @@ extension CameraManager {
         try await permissionsManager.requestAccess(parent: self)
 
         setupCameraLayer()
-        try setupDeviceInputs()
-        try setupDeviceOutput()
-        try setupFrameRecorder()
+        try cameraMetalView.setup(parent: self)
+        let cameraInput = getCameraInput()
+        let audioInput = getAudioInput()
+        photoOutput.assignParent(self)
+        videoOutput.assignParent(self)
+        let frameRecorderOutput = AVCaptureVideoDataOutput()
+        frameRecorderOutput.setSampleBufferDelegate(cameraMetalView, queue: .main)
+        let session = captureSession
+        let photoOut = photoOutput.output
+        let videoOut = videoOutput.output
+
+        do {
+            try await runAsync(on: sessionQueue, work: SendableSessionWork {
+                try session.add(input: cameraInput)
+                if let audioInput { try session.add(input: audioInput) }
+                try session.add(output: photoOut)
+                try session.add(output: videoOut)
+                try session.add(output: frameRecorderOutput)
+                session.startRunning()
+            })
+        } catch let error as MCameraError {
+            throw error
+        } catch {
+            throw MCameraError.cannotSetupInput
+        }
+
         notificationCenterManager.setup(parent: self)
         motionManager.setup(parent: self)
-        try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
 
         startSession()
@@ -76,20 +119,6 @@ private extension CameraManager {
         cameraLayer.videoGravity = .resizeAspectFill
         cameraLayer.isHidden = true
         cameraView.layer.addSublayer(cameraLayer)
-    }
-    func setupDeviceInputs() throws(MCameraError) {
-        try captureSession.add(input: getCameraInput())
-        if let audioInput = getAudioInput() { try captureSession.add(input: audioInput) }
-    }
-    func setupDeviceOutput() throws(MCameraError) {
-        try photoOutput.setup(parent: self)
-        try videoOutput.setup(parent: self)
-    }
-    func setupFrameRecorder() throws(MCameraError) {
-        let captureVideoOutput = AVCaptureVideoDataOutput()
-        captureVideoOutput.setSampleBufferDelegate(cameraMetalView, queue: .main)
-
-        try captureSession.add(output: captureVideoOutput)
     }
     func startSession() { Task {
         guard let device = getCameraInput()?.device else { return }
@@ -169,19 +198,30 @@ extension CameraManager {
 
 // MARK: Set Camera Position
 extension CameraManager {
-    func setCameraPosition(_ position: CameraPosition) async throws {
+    func setCameraPosition(_ position: CameraPosition) async throws(MCameraError) {
         guard position != attributes.cameraPosition, !isChanging else { return }
 
         await cameraMetalView.beginCameraFlipAnimation()
-        try changeCameraInput(position)
+        try await changeCameraInput(position)
         resetAttributesWhenChangingCamera(position)
         await cameraMetalView.finishCameraFlipAnimation()
     }
 }
 private extension CameraManager {
-    func changeCameraInput(_ position: CameraPosition) throws {
-        if let input = getCameraInput() { captureSession.remove(input: input) }
-        try captureSession.add(input: getCameraInput(position))
+    func changeCameraInput(_ position: CameraPosition) async throws(MCameraError) {
+        let currentInput = getCameraInput()
+        let newInput = getCameraInput(position)
+        let session = captureSession
+        do {
+            try await runAsync(on: sessionQueue, work: SendableSessionWork {
+                if let currentInput { session.remove(input: currentInput) }
+                try session.add(input: newInput)
+            })
+        } catch let error as MCameraError {
+            throw error
+        } catch {
+            throw MCameraError.cannotSetupInput
+        }
     }
     func resetAttributesWhenChangingCamera(_ position: CameraPosition) {
         resetAttributes(device: getCameraInput(position)?.device)
