@@ -122,8 +122,7 @@ private extension CameraManager {
     }
     func startSession() { Task {
         guard let device = getCameraInput()?.device else { return }
-
-        try await startCaptureSession()
+        // Session already started on sessionQueue in setup(); avoid double start.
         try setupDevice(device)
         resetAttributes(device: device)
         cameraMetalView.performCameraEntranceAnimation()
