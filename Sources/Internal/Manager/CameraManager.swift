@@ -199,6 +199,11 @@ extension CameraManager {
 extension CameraManager {
     func setCameraPosition(_ position: CameraPosition) async throws(MCameraError) {
         guard position != attributes.cameraPosition, !isChanging else { return }
+        // Flip UI can appear before setup() assigns metal parent / cameraView (remount race).
+        guard cameraMetalView.parent != nil, cameraView != nil else {
+            print("⚠️ Camera flip skipped: camera not ready")
+            return
+        }
 
         await cameraMetalView.beginCameraFlipAnimation()
         try await changeCameraInput(position)

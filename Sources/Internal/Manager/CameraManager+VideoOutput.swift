@@ -55,12 +55,16 @@ extension CameraManagerVideoOutput {
 // MARK: Start Recording
 private extension CameraManagerVideoOutput {
     func startRecording() {
+        guard let parent else {
+            print("⚠️ Video recording skipped: camera not ready (parent nil)")
+            return
+        }
         guard let url = prepareUrlForVideoRecording() else { return }
 
-        configureOutput()
-        storeLastFrame()
+        configureOutput(parent: parent)
+        storeLastFrame(parent: parent)
         output.startRecording(to: url, recordingDelegate: self)
-        startRecordingTimer()
+        startRecordingTimer(parent: parent)
         parent.objectWillChange.send()
     }
 }
@@ -68,13 +72,13 @@ private extension CameraManagerVideoOutput {
     func prepareUrlForVideoRecording() -> URL? {
         FileManager.prepareURLForVideoOutput()
     }
-    func configureOutput() {
+    func configureOutput(parent: CameraManager) {
         guard let connection = output.connection(with: .video), connection.isVideoMirroringSupported else { return }
 
         connection.isVideoMirrored = parent.attributes.mirrorOutput ? parent.attributes.cameraPosition != .front : parent.attributes.cameraPosition == .front
         connection.videoOrientation = parent.attributes.deviceOrientation
     }
-    func storeLastFrame() {
+    func storeLastFrame(parent: CameraManager) {
         guard let texture = parent.cameraMetalView.currentDrawable?.texture,
               let ciImage = CIImage(mtlTexture: texture, options: nil),
               let cgImage = parent.cameraMetalView.ciContext.createCGImage(ciImage, from: ciImage.extent)
@@ -82,7 +86,7 @@ private extension CameraManagerVideoOutput {
 
         firstRecordedFrame = UIImage(cgImage: cgImage, scale: 1.0, orientation: parent.attributes.deviceOrientation.toImageOrientation())
     }
-    func startRecordingTimer() { try? timer
+    func startRecordingTimer(parent: CameraManager) { try? timer
         .publish(every: 1) { [self] in
             recordingTime = $0
             parent.objectWillChange.send()

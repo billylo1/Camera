@@ -35,20 +35,25 @@ extension CameraManagerPhotoOutput {
 // MARK: Capture
 extension CameraManagerPhotoOutput {
     func capture() {
-        let settings = getPhotoOutputSettings()
+        // parent is an IUO assigned during setup(); shutter can race a remount/cold start.
+        guard let parent else {
+            print("⚠️ Photo capture skipped: camera not ready (parent nil)")
+            return
+        }
+        let settings = getPhotoOutputSettings(parent: parent)
 
-        configureOutput()
+        configureOutput(parent: parent)
         output.capturePhoto(with: settings, delegate: self)
         parent.cameraMetalView.performImageCaptureAnimation()
     }
 }
 private extension CameraManagerPhotoOutput {
-    func getPhotoOutputSettings() -> AVCapturePhotoSettings {
+    func getPhotoOutputSettings(parent: CameraManager) -> AVCapturePhotoSettings {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = parent.attributes.flashMode.toDeviceFlashMode()
         return settings
     }
-    func configureOutput() {
+    func configureOutput(parent: CameraManager) {
         guard let connection = output.connection(with: .video), connection.isVideoMirroringSupported else { return }
 
         connection.isVideoMirrored = parent.attributes.mirrorOutput ? parent.attributes.cameraPosition != .front : parent.attributes.cameraPosition == .front

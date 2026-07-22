@@ -95,15 +95,19 @@ private extension CameraMetalView {
 // MARK: Camera Flip
 extension CameraMetalView {
     func beginCameraFlipAnimation() async {
+        // parent / cameraView are IUOs set during setup(); flip can race a remount
+        // (e.g. return from background) before setup finishes — guard to avoid EXC_BREAKPOINT.
+        guard let parent, parent.cameraView != nil else { return }
         let snapshot = createSnapshot()
         isAnimating = true
-        insertBlurView(snapshot)
-        animateBlurFlip()
+        insertBlurView(snapshot, parent: parent)
+        animateBlurFlip(parent: parent)
 
         await Task.sleep(seconds: 0.01)
     }
     func finishCameraFlipAnimation() async {
-        guard let blurView = parent.cameraView.viewWithTag(.blurViewTag) else { return }
+        guard let parent, let cameraView = parent.cameraView else { return }
+        guard let blurView = cameraView.viewWithTag(.blurViewTag) else { return }
 
         await Task.sleep(seconds: 0.44)
         UIView.animate(withDuration: 0.3, animations: { blurView.alpha = 0 }) { [self] _ in
@@ -119,22 +123,26 @@ private extension CameraMetalView {
         let image = UIImage(ciImage: currentFrame)
         return image
     }
-    func insertBlurView(_ snapshot: UIImage?) {
-        let blurView = UIImageView(frame: parent.cameraView.frame)
+    func insertBlurView(_ snapshot: UIImage?, parent: CameraManager) {
+        guard let cameraView = parent.cameraView else { return }
+        let blurView = UIImageView(frame: cameraView.frame)
         blurView.image = snapshot
         blurView.contentMode = .scaleAspectFill
         blurView.clipsToBounds = true
         blurView.tag = .blurViewTag
         blurView.applyBlurEffect(style: .regular)
 
-        parent.cameraView.addSubview(blurView)
+        cameraView.addSubview(blurView)
     }
-    func animateBlurFlip() {
-        UIView.transition(with: parent.cameraView, duration: 0.44, options: cameraFlipAnimationTransition) {}
+    func animateBlurFlip(parent: CameraManager) {
+        guard let cameraView = parent.cameraView else { return }
+        UIView.transition(with: cameraView, duration: 0.44, options: cameraFlipAnimationTransition(for: parent)) {}
     }
 }
 private extension CameraMetalView {
-    var cameraFlipAnimationTransition: UIView.AnimationOptions { parent.attributes.cameraPosition == .back ? .transitionFlipFromLeft : .transitionFlipFromRight }
+    func cameraFlipAnimationTransition(for parent: CameraManager) -> UIView.AnimationOptions {
+        parent.attributes.cameraPosition == .back ? .transitionFlipFromLeft : .transitionFlipFromRight
+    }
 }
 
 // MARK: Camera Focus
